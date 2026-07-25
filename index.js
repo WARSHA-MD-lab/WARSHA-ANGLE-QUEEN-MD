@@ -3,7 +3,7 @@ if (typeof globalThis.crypto === 'undefined') {
     Object.defineProperty(globalThis, 'crypto', { value: crypto });
 }
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const fs = require('fs');
@@ -11,42 +11,44 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// 1. Web server එක alive තියාගන්න
+// Railway kill නොවෙන්න web server එක alive තියනවා
 app.get('/', (req, res) => res.send('Bot is Running'));
 app.listen(PORT, () => console.log('Server running on port', PORT));
 
-// 2. Session එක 1 පාරක් විතරක් මකමු
+// පලවෙනි පාර විතරක් session මකනවා
 const sessionPath = './session';
-let firstRun = !fs.existsSync(sessionPath);
+if(!fs.existsSync(sessionPath)){
+    console.log('No session found. Will generate QR...');
+}
 
 const start = async () => {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const sock = makeWASocket({ 
         auth: state, 
-        logger: pino({level: 'silent'}),
-        printQRInTerminal: true
+        logger: pino({level: 'silent'}) 
     });
 
     sock.ev.on('creds.update', saveCreds);
+    
     sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect, qr } = u;
+        const { connection, qr } = u;
         
-        if(qr && firstRun) { // පලවෙනි පාර විතරක් QR
-            console.log('\n\n====== SCAN QR NOW ======\n');
-            qrcode.generate(qr, {small: true});
-            console.log('\n=========================\n\n');
+        if(qr) {
+            console.log('\n\n');
+            console.log('========================================');
+            console.log('        SCAN THIS QR WITH WHATSAPP      ');
+            console.log('========================================');
+            qrcode.generate(qr, {small: false}); // small: false = ලොකු QR
+            console.log('========================================');
+            console.log('\n\n');
         }
         
-        if(connection === 'close') {
-            const code = lastDisconnect?.error?.output?.statusCode;
-            console.log('Connection closed:', code);
-            if(code !== DisconnectReason.loggedOut) {
-                setTimeout(start, 3000);
-            }
-        }
         if(connection === 'open') {
-            console.log('✅ BOT CONNECTED!');
-            firstRun = false;
+            console.log('✅ BOT CONNECTED SUCCESSFULLY!');
+        }
+        if(connection === 'close') {
+            console.log('Connection closed. Waiting 10s to retry...');
+            setTimeout(start, 10000); // 10s ඉඳලා ආපහු try
         }
     });
 };
