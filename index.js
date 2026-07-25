@@ -1,51 +1,34 @@
-global.crypto = require('crypto');
-global.Buffer = require('buffer').Buffer;
-global.process = require('process');
+const crypto = require('crypto');
+if (typeof globalThis.crypto === 'undefined') {
+    Object.defineProperty(globalThis, 'crypto', { value: crypto });
+}
 
-const express = require('express');
-const app = express();
-const bodyParser = require("body-parser");
-const PORT = process.env.PORT || 8000;
-const pino = require('pino');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const pino = require('pino');
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-const startBot = async () => {
+const start = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('./session');
-    const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'silent' })
-    });
+    const sock = makeWASocket({ auth: state, logger: pino({level: 'fatal'}) });
 
     sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log('\n\n======= SCAN THIS QR NOW =======\n');
-            qrcode.generate(qr, { small: true });
-            console.log('\n================================\n\n');
+    sock.ev.on('connection.update', (u) => {
+        const { connection, lastDisconnect, qr } = u;
+        if(qr) {
+            console.log('\n\n====== SCAN QR ======\n');
+            qrcode.generate(qr, {small: true});
+            console.log('\n=====================\n\n');
         }
-        
-        if (connection === 'open') {
-            console.log('✅ Bot Connected Successfully!');
-        } else if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            console.log('❌ Connection closed. Status:', statusCode);
-            // loggedOut = 401 නම් ආපහු connect වෙන්න එපා
-            if (statusCode !== DisconnectReason.loggedOut) {
-                console.log('Restarting in 3s...');
-                setTimeout(() => startBot(), 3000);
-            }
+        if(connection === 'close') {
+            const code = lastDisconnect.error?.output?.statusCode;
+            if(code !== DisconnectReason.loggedOut) start();
         }
     });
 };
+start();
 
-startBot();
-
-app.get('/', (req, res) => res.send('WARSH-ANGLE-QUEEN-MD is Running'));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.get('/', (req, res) => res.send('OK'));
+app.listen(PORT, () => console.log('Server running on port', PORT));
