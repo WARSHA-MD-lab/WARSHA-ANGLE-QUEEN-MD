@@ -1,52 +1,53 @@
-const crypto = require('crypto'); // <-- මේ line එක අලුතෙන් add කරන්න
+global.crypto = require('crypto'); // <-- මේක තමයි game changer
+
 const express = require('express');
 const app = express();
 const bodyParser = require("body-parser");
 const PORT = process.env.PORT || 8000;
-const pino = require('pino')
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
-const qrcode = require('qrcode-terminal')
+const pino = require('pino');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-async function connectToWhatsApp () {
-    const { state, saveCreds } = await useMultiFileAuthState('./session')
+const startBot = async () => {
+    const { state, saveCreds } = await useMultiFileAuthState('./session');
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
-        logger: pino({ level: 'warn' })
-    })
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: false
+    });
 
-    sock.ev.on('creds.update', saveCreds)
-    
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
         
-        if(qr){
-            console.log('\n=== SCAN THIS QR ===\n')
-            qrcode.generate(qr, {small: true})
-            console.log('\n====================\n')
+        if (qr) {
+            console.log('================= SCAN QR =================');
+            qrcode.generate(qr, { small: true });
+            console.log('===========================================');
         }
         
-        if(connection === 'close'){
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut
-            console.log('Connection closed. Reconnecting...')
-            if(shouldReconnect){
-                connectToWhatsApp()
+        if (connection === 'open') {
+            console.log('✅ Bot Connected Successfully!');
+        } else if (connection === 'close') {
+            const reason = new DisconnectReason(lastDisconnect.error)?.output?.statusCode;
+            console.log('❌ Connection closed. Reason:', reason);
+            if (reason !== DisconnectReason.loggedOut) {
+                startBot(); // auto reconnect
             }
-        } else if(connection === 'open'){
-            console.log('Bot Connected Successfully!')
         }
-    })
-}
+    });
+};
 
-connectToWhatsApp()
+startBot();
 
 app.get('/', (req, res) => {
-  res.send('WARSH-ANGLE-QUEEN-MD is Running')
+  res.send('WARSH-ANGLE-QUEEN-MD is Running');
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`)
+    console.log(`Server running on port ${PORT}`);
 });
