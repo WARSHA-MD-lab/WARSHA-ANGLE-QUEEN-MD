@@ -1,3 +1,4 @@
+const crypto = require('crypto'); // <-- මේ line එක අලුතෙන් add කරන්න
 const express = require('express');
 const app = express();
 const bodyParser = require("body-parser");
@@ -5,7 +6,6 @@ const PORT = process.env.PORT || 8000;
 const pino = require('pino')
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode-terminal')
-const { Boom } = require('@hapi/boom')
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -14,7 +14,7 @@ async function connectToWhatsApp () {
     const { state, saveCreds } = await useMultiFileAuthState('./session')
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // false කරා
+        printQRInTerminal: false,
         logger: pino({ level: 'warn' })
     })
 
@@ -24,13 +24,14 @@ async function connectToWhatsApp () {
         const { connection, lastDisconnect, qr } = update
         
         if(qr){
-            console.log('Scan this QR:')
-            qrcode.generate(qr, {small: true}) // <-- මේකෙන් QR print වෙයි
+            console.log('\n=== SCAN THIS QR ===\n')
+            qrcode.generate(qr, {small: true})
+            console.log('\n====================\n')
         }
         
         if(connection === 'close'){
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut
-            console.log('Connection closed. Reconnecting...', shouldReconnect)
+            console.log('Connection closed. Reconnecting...')
             if(shouldReconnect){
                 connectToWhatsApp()
             }
