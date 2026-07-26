@@ -1,55 +1,67 @@
-const crypto = require('crypto');
-if (typeof globalThis.crypto === 'undefined') {
-    Object.defineProperty(globalThis, 'crypto', { value: crypto });
-}
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys')
+const { Boom } = require('@hapi/boom')
+const express = require('express')
+const qrcode = require('qrcode')
+const fs = require('fs')
+const path = require('path')
+const pino = require('pino')
 
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const pino = require('pino');
-const fs = require('fs');
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 8000;
+const app = express()
+const PORT = process.env.PORT || 8080
+let qr = null
+let sock = null
 
-// Railway kill නොවෙන්න web server එක alive තියනවා
-app.get('/', (req, res) => res.send('Bot is Running'));
-app.listen(PORT, () => console.log('Server running on port', PORT));
+app.use(express.static('public'))
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'main.html'))
+})
 
-// පලවෙනි පාර විතරක් session මකනවා
-const sessionPath = './session';
-if(!fs.existsSync(sessionPath)){
-    console.log('No session found. Will generate QR...');
-}
+// QR image එක ගන්න API
+app.get('/qr', async (req, res) => {
+    if(qr){
+        const qrImage = await qrcode.toDataURL(qr)
+        res.send(`<img src="${qrImage}" style="width:300px"> <p>Scan this QR in 20s</p>`)
+    } else {
+        res.send('QR not generated yet. Refresh in 5s <meta http-equiv="refresh" content="5">')
+    }
+})
 
-const start = async () => {
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-    const sock = makeWASocket({ 
-        auth: state, 
-        logger: pino({level: 'silent'}) 
-    });
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
 
-    sock.ev.on('creds.update', saveCreds);
+
+async function startSock() {
+    const { state, saveCreds } = await useMultiFileAuthState('./session')
+    const { version } = await fetchLatestBaileysVersion()
+
+    sock = makeWASocket({
+        version,
+        logger: pino({ level: 'info' }),
+        auth: state,
+        browser: Browsers.ubuntu('Chrome')
+    })
+
+    sock.ev.on('creds.update', saveCreds)
     
-    sock.ev.on('connection.update', (u) => {
-        const { connection, qr } = u;
-        
-        if(qr) {
-            console.log('\n\n');
-            console.log('========================================');
-            console.log('        SCAN THIS QR WITH WHATSAPP      ');
-            console.log('========================================');
-            qrcode.generate(qr, {small: false}); // small: false = ලොකු QR
-            console.log('========================================');
-            console.log('\n\n');
-        }
-        
-        if(connection === 'open') {
-            console.log('✅ BOT CONNECTED SUCCESSFULLY!');
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr: qrCode } = update
+        if(qrCode) {
+            qr = qrCode
+            console.log('New QR Generated')
         }
         if(connection === 'close') {
-            console.log('Connection closed. Waiting 10s to retry...');
-            setTimeout(start, 10000); // 10s ඉඳලා ආපහු try
+            qr = null
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut
+            console.log('Connection closed. Reconnecting...', shouldReconnect)
+            if(shouldReconnect) startSock()
         }
-    });
-};
-start();
+        if(connection === 'open') {
+            qr = null
+            console.log('Connected successfully!')
+        }
+    })
+    
+    // msg.js import කරගන්න
+    require('./msg.js')(sock)
+}
+
+startSock()
